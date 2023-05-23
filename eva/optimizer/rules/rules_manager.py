@@ -18,22 +18,26 @@ from contextlib import contextmanager
 from typing import List
 
 from eva.configuration.configuration_manager import ConfigurationManager
-from eva.experimental.ray.optimizer.rules.rules import LogicalExchangeToPhysical
-from eva.experimental.ray.optimizer.rules.rules import (
-    LogicalGetToSeqScan as DistributedLogicalGetToSeqScan,
+from eva.experimental.parallel.optimizer.rules.rules import (
+    LogicalApplyAndMergeToPhysical as ParallelLogicalApplyAndMergeToPhysical,
 )
-from eva.experimental.ray.optimizer.rules.rules import (
-    LogicalProjectToPhysical as DistributedLogicalProjectToPhysical,
+from eva.experimental.parallel.optimizer.rules.rules import LogicalExchangeToPhysical
+from eva.experimental.parallel.optimizer.rules.rules import (
+    LogicalGetToSeqScan as ParallelLogicalGetToSeqScan,
 )
 from eva.optimizer.rules.rules import (
     CacheFunctionExpressionInApply,
     CacheFunctionExpressionInFilter,
     CacheFunctionExpressionInProject,
-    CombineSimilarityOrderByAndLimitToFaissIndexScan,
+    CombineSimilarityOrderByAndLimitToVectorIndexScan,
     EmbedFilterIntoGet,
     EmbedSampleIntoGet,
-    LogicalApplyAndMergeToPhysical,
-    LogicalCreateIndexToFaiss,
+)
+from eva.optimizer.rules.rules import (
+    LogicalApplyAndMergeToPhysical as SequentialLogicalApplyAndMergeToPhysical,
+)
+from eva.optimizer.rules.rules import (
+    LogicalCreateIndexToVectorIndex,
     LogicalCreateMaterializedViewToPhysical,
     LogicalCreateToPhysical,
     LogicalCreateUDFToPhysical,
@@ -42,7 +46,6 @@ from eva.optimizer.rules.rules import (
     LogicalDropToPhysical,
     LogicalDropUDFToPhysical,
     LogicalExplainToPhysical,
-    LogicalFaissIndexScanToPhysical,
     LogicalFilterToPhysical,
     LogicalFunctionScanToPhysical,
 )
@@ -59,17 +62,15 @@ from eva.optimizer.rules.rules import (
     LogicalLimitToPhysical,
     LogicalLoadToPhysical,
     LogicalOrderByToPhysical,
-)
-from eva.optimizer.rules.rules import (
-    LogicalProjectToPhysical as SequentialLogicalProjectToPhysical,
-)
-from eva.optimizer.rules.rules import (
+    LogicalProjectToPhysical,
     LogicalRenameToPhysical,
     LogicalShowToPhysical,
     LogicalUnionToPhysical,
+    LogicalVectorIndexScanToPhysical,
     PushDownFilterThroughApplyAndMerge,
     PushDownFilterThroughJoin,
     ReorderPredicates,
+    XformExtractObjectToLinearFlow,
     XformLateralJoinToLinearFlow,
 )
 from eva.optimizer.rules.rules_base import Rule
@@ -86,6 +87,7 @@ class RulesManager:
 
         self._stage_one_rewrite_rules = [
             XformLateralJoinToLinearFlow(),
+            XformExtractObjectToLinearFlow(),
         ]
 
         self._stage_two_rewrite_rules = [
@@ -94,7 +96,7 @@ class RulesManager:
             EmbedSampleIntoGet(),
             PushDownFilterThroughJoin(),
             PushDownFilterThroughApplyAndMerge(),
-            CombineSimilarityOrderByAndLimitToFaissIndexScan(),
+            CombineSimilarityOrderByAndLimitToVectorIndexScan(),
             ReorderPredicates(),
         ]
 
@@ -109,7 +111,7 @@ class RulesManager:
             LogicalInsertToPhysical(),
             LogicalDeleteToPhysical(),
             LogicalLoadToPhysical(),
-            DistributedLogicalGetToSeqScan()
+            ParallelLogicalGetToSeqScan()
             if ray_enabled
             else SequentialLogicalGetToSeqScan(),
             LogicalDerivedGetToPhysical(),
@@ -123,14 +125,14 @@ class RulesManager:
             LogicalFunctionScanToPhysical(),
             LogicalCreateMaterializedViewToPhysical(),
             LogicalFilterToPhysical(),
-            DistributedLogicalProjectToPhysical()
+            LogicalProjectToPhysical(),
+            ParallelLogicalApplyAndMergeToPhysical()
             if ray_enabled
-            else SequentialLogicalProjectToPhysical(),
+            else SequentialLogicalApplyAndMergeToPhysical(),
             LogicalShowToPhysical(),
             LogicalExplainToPhysical(),
-            LogicalCreateIndexToFaiss(),
-            LogicalApplyAndMergeToPhysical(),
-            LogicalFaissIndexScanToPhysical(),
+            LogicalCreateIndexToVectorIndex(),
+            LogicalVectorIndexScanToPhysical(),
         ]
 
         if ray_enabled:
@@ -209,7 +211,7 @@ def disable_rules(rules: List[Rule]):
     """Use this function to temporarily drop rules.
         Useful for testing and debugging purposes.
     Args:
-        rules (List[Rule]): List of rules to temporirly drop
+        rules (List[Rule]): List of rules to temporarily drop
     """
     try:
         rules_manager = RulesManager()

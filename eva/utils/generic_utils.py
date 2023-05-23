@@ -21,6 +21,7 @@ import shutil
 import sys
 import uuid
 from pathlib import Path
+from typing import List
 
 from aenum import AutoEnum, unique
 
@@ -29,12 +30,20 @@ from eva.utils.logging_manager import logger
 
 
 def validate_kwargs(
-    kwargs, allowed_kwargs, error_message="Keyword argument not understood:"
+    kwargs,
+    allowed_keys: List[str],
+    required_keys: List[str],
+    error_message="Keyword argument not understood:",
 ):
     """Checks that all keyword arguments are in the set of allowed keys."""
+    if required_keys is None:
+        required_keys = allowed_keys
     for kwarg in kwargs:
-        if kwarg not in allowed_kwargs:
+        if kwarg not in allowed_keys:
             raise TypeError(error_message, kwarg)
+
+    missing_keys = [key for key in required_keys if key not in kwargs]
+    assert len(missing_keys) == 0, f"Missing required keys, {missing_keys}"
 
 
 def str_to_class(class_path: str):
@@ -106,7 +115,7 @@ def is_gpu_available() -> bool:
         return False
 
 
-def prefix_worker_id_to_path(path: str):
+def prefix_xdist_worker_id_to_path(path: str):
     try:
         worker_id = os.environ["PYTEST_XDIST_WORKER"]
         base = "eva_datasets"
@@ -145,7 +154,7 @@ def generate_file_path(name: str = "") -> Path:
         logger.error("Missing dataset location key in eva.yml")
         raise KeyError("Missing datasets_dir key in eva.yml")
 
-    dataset_location = prefix_worker_id_to_path(dataset_location)
+    dataset_location = prefix_xdist_worker_id_to_path(dataset_location)
     dataset_location = Path(dataset_location)
     dataset_location.mkdir(parents=True, exist_ok=True)
 
