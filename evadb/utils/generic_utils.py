@@ -22,9 +22,11 @@ import sys
 import uuid
 from pathlib import Path
 from typing import List
+from urllib.parse import urlparse
 
 from aenum import AutoEnum, unique
 
+from evadb.configuration.constants import EvaDB_INSTALLATION_DIR
 from evadb.utils.logging_manager import logger
 
 
@@ -61,7 +63,7 @@ def str_to_class(class_path: str):
     return getattr(module, class_name)
 
 
-def load_udf_class_from_file(filepath, classname=None):
+def load_function_class_from_file(filepath, classname=None):
     """
     Load a class from a Python file. If the classname is not specified, the function will check if there is only one class in the file and load that. If there are multiple classes, it will raise an error.
 
@@ -81,7 +83,7 @@ def load_udf_class_from_file(filepath, classname=None):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
     except Exception as e:
-        err_msg = f"Couldn't load UDF from {filepath} : {str(e)}. This might be due to a missing Python package, or because the UDF implementation file does not exist, or it is not a valid Python file."
+        err_msg = f"Couldn't load function from {filepath} : {str(e)}. This might be due to a missing Python package, or because the function implementation file does not exist, or it is not a valid Python file."
         raise RuntimeError(err_msg)
 
     # Try to load the specified class by name
@@ -96,7 +98,7 @@ def load_udf_class_from_file(filepath, classname=None):
     ]
     if len(classes) != 1:
         raise RuntimeError(
-            f"{filepath} contains {len(classes)} classes, please specify the correct class to load by naming the UDF with the same name in the CREATE query."
+            f"{filepath} contains {len(classes)} classes, please specify the correct class to load by naming the function with the same name in the CREATE query."
         )
     return classes[0]
 
@@ -191,6 +193,28 @@ def get_file_checksum(fname: str) -> str:
     return hash_md5.hexdigest()
 
 
+def parse_config_yml():
+    """
+    Parses the 'evadb.yml' file and returns the config object.
+    """
+    import yaml
+
+    f = open(Path(EvaDB_INSTALLATION_DIR) / "evadb.yml", "r+")
+    config_obj = yaml.load(f, Loader=yaml.FullLoader)
+    return config_obj
+
+
+def is_postgres_uri(db_uri):
+    """
+    Determines if the db_uri is that of postgres.
+
+    Args:
+        db_uri (str) : db_uri to parse
+    """
+    parsed_uri = urlparse(db_uri)
+    return parsed_uri.scheme == "postgres" or parsed_uri.scheme == "postgresql"
+
+
 class PickleSerializer(object):
     @classmethod
     def serialize(cls, data):
@@ -220,8 +244,85 @@ def remove_directory_contents(dir_path):
                 logger.warning(f"Failed to delete {file_path}. Reason: {str(e)}")
 
 
+def find_nearest_word(word, word_list):
+    from thefuzz import process
+
+    nearest_word_and_score = process.extractOne(word, word_list)
+    nearest_word = nearest_word_and_score[0]
+
+    return nearest_word
+
+
 ##############################
 ## TRY TO IMPORT PACKAGES
+##############################
+
+
+def try_to_import_ray():
+    try:
+        import ray  # noqa: F401
+        from ray.util.queue import Queue  # noqa: F401
+    except ImportError:
+        raise ValueError(
+            """Could not import ray python package.
+                Please install it with `pip install ray`."""
+        )
+
+
+def try_to_import_forecast():
+    try:
+        from statsforecast import StatsForecast  # noqa: F401
+    except ImportError:
+        raise ValueError(
+            """Could not import StatsForecast python package.
+                Please install it with `pip install statsforecast`."""
+        )
+
+
+def is_ray_available() -> bool:
+    try:
+        try_to_import_ray()
+        return True
+    except ValueError:  # noqa: E722
+        return False
+
+
+def is_ray_enabled_and_installed(ray_enabled: bool) -> bool:
+    ray_installed = is_ray_available()
+    return ray_enabled and ray_installed
+
+
+##############################
+## MODEL TRAIN FRAMEWORK
+##############################
+
+
+def try_to_import_ludwig():
+    try:
+        import ludwig  # noqa: F401
+        from ludwig.automl import auto_train  # noqa: F401
+    except ImportError:
+        raise ValueError(
+            """Could not import ludwig.
+                Please install it with `pip install ludwig[full]`."""
+        )
+
+
+def is_ludwig_available() -> bool:
+    try:
+        try_to_import_ludwig()
+        return True
+    except ValueError:  # noqa: E722
+        return False
+
+
+def is_forecast_available() -> bool:
+    try:
+        try_to_import_forecast()
+        return True
+    except ValueError:  # noqa: E722
+        return False
+
 
 ##############################
 ## VISION
@@ -265,6 +366,16 @@ def try_to_import_cv2():
         raise ValueError(
             """Could not import cv2 python package.
                 Please install it with `pip install opencv-python`."""
+        )
+
+
+def try_to_import_timm():
+    try:
+        import timm  # noqa: F401
+    except ImportError:
+        raise ValueError(
+            """Could not import timm python package.
+                Please install them with `pip install timm`."""
         )
 
 
@@ -376,6 +487,14 @@ def try_to_import_qdrant_client():
             """Could not import qdrant_client python package.
                 Please install it with `pip install qdrant_client`."""
         )
+
+
+def is_qdrant_available() -> bool:
+    try:
+        try_to_import_qdrant_client()
+        return True
+    except ValueError:  # noqa: E722
+        return False
 
 
 ##############################

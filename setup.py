@@ -22,6 +22,11 @@ AUTHOR = "Georgia Tech Database Group"
 AUTHOR_EMAIL = "arulraj@gatech.edu"
 URL = "https://github.com/georgia-tech-db/eva"
 
+# Check Python version
+# import sys
+# if sys.version_info < (3, 8):
+#     sys.exit("Python 3.8 or later is required.")
+
 
 def read(path, encoding="utf-8"):
     path = os.path.join(os.path.dirname(__file__), path)
@@ -41,50 +46,56 @@ VERSION = VERSION_DICT["VERSION"]
 minimal_requirements = [
     "numpy>=1.19.5",
     "pandas>=1.1.5",
-    "sqlalchemy>=1.4.0,<2.0.0",  # BREAKING CHANGES IN 2.0.0
+    "sqlalchemy>=2.0.0",
     "sqlalchemy-utils>=0.36.6",
     "lark>=1.0.0",
     "pyyaml>=5.1",
-    "ray>=1.13.0,<2.5.0",        # BREAKING CHANGES IN 2.5.0
     "aenum>=2.2.0",
     "diskcache>=5.4.0",
     "retry>=0.9.2",
+    "pydantic<2",  # ray-project/ray#37019.
+    "psutil",
+    "thefuzz",
 ]
 
 vision_libs = [
     "torch>=1.10.0",
     "torchvision>=0.11.1",
-    "transformers>=4.27.4,<4.30.2",  # HUGGINGFACE
-    "faiss-cpu",             # DEFAULT VECTOR INDEX
+    "transformers",  # HUGGINGFACE
+    "faiss-cpu",  # DEFAULT VECTOR INDEX
     "opencv-python-headless>=4.6.0.66",
     "Pillow>=8.4.0",
-    "eva-decord>=0.6.1",     # VIDEO PROCESSING
-    "ultralytics>=8.0.93",   # OBJECT DETECTION
-    "timm>=0.6.13",          # HUGGINGFACE VISION TASKS
-    "sentencepiece",         # TRANSFORMERS
+    "eva-decord>=0.6.1",  # VIDEO PROCESSING
+    "ultralytics>=8.0.93",  # OBJECT DETECTION
+    "timm>=0.6.13",  # HUGGINGFACE VISION TASKS
+    "sentencepiece",  # TRANSFORMERS
 ]
 
 document_libs = [
-    "transformers>=4.27.4,<4.30.2",  # HUGGINGFACE
-    "langchain",              # DATA LOADERS
-    "faiss-cpu",              # DEFAULT VECTOR INDEX
-    "pymupdf",
+    "transformers",  # HUGGINGFACE
+    "langchain",  # DATA LOADERS
+    "faiss-cpu",  # DEFAULT VECTOR INDEX
+    "pymupdf<1.23.0",  # pymupdf/PyMuPDF#2617 and pymupdf/PyMuPDF#2614
     "pdfminer.six",
     "sentence-transformers",
-    "openai>=0.27.4",          # CHATGPT
-    "gpt4all",                 # PRIVATE GPT
-    "sentencepiece",           # TRANSFORMERS
+    "protobuf",
+    "bs4",
+    "openai>=0.27.4",  # CHATGPT
+    "gpt4all",  # PRIVATE GPT
+    "sentencepiece",  # TRANSFORMERS
 ]
 
-udf_libs = [
+function_libs = [
     "facenet-pytorch>=2.5.2",  # FACE DETECTION
-    "thefuzz",                 # FUZZY STRING MATCHING
-    "pytube",                  # YOUTUBE QA APP
+    "pytube",  # YOUTUBE QA APP
     "youtube-transcript-api",  # YOUTUBE QA APP
-    "qdrant-client>=1.1.7",    # QDRANT VECTOR STORE
-    "boto3",                   # AWS
-    "norfair>=2.2.0",          # OBJECT TRACKING
-    "kornia",                  # SIFT FEATURES        
+    "boto3",  # AWS
+    "norfair>=2.2.0",  # OBJECT TRACKING
+    "kornia",  # SIFT FEATURES
+]
+
+ray_libs = [
+    "ray>=1.13.0,<2.5.0",  # BREAKING CHANGES IN 2.5.0
 ]
 
 notebook_libs = [
@@ -93,6 +104,18 @@ notebook_libs = [
     "matplotlib>=3.3.4",
     "nbmake>=1.2.1",
     "nest-asyncio>=1.5.6",
+]
+
+qdrant_libs = ["qdrant_client"]  # cannot install on 3.11 due to grcpio
+
+postgres_libs = [
+    "psycopg2",
+]
+
+ludwig_libs = ["ludwig[hyperopt,distributed]"]  # MODEL TRAIN AND FINE TUNING
+
+forecasting_libs = [
+    "statsforecast" # MODEL TRAIN AND FINE TUNING
 ]
 
 ### NEEDED FOR DEVELOPER TESTING ONLY
@@ -104,17 +127,14 @@ dev_libs = [
     "mock",
     "coveralls>=3.0.1",
     "moto[s3]>=4.1.1",
-
     # BENCHMARK PACKAGES
     "pytest-benchmark",
-
     # LINTING PACKAGES
-    "codespell", 
+    "codespell",
     "pylint",
-    "black>=23.1.0", 
+    "black>=23.1.0",
     "isort>=5.10.1",
     "flake8>=3.9.1",
-
     # DISTRIBUTION PACKAGES
     "wheel>=0.37.1",
     "semantic_version",
@@ -126,12 +146,17 @@ dev_libs = [
 INSTALL_REQUIRES = minimal_requirements
 
 EXTRA_REQUIRES = {
+    "ray": ray_libs,
     "vision": vision_libs,
     "document": document_libs,
-    "udf": udf_libs,
+    "function": function_libs,
     "notebook": notebook_libs,
-    "all": vision_libs + document_libs + udf_libs + notebook_libs,
-    "dev": dev_libs + vision_libs + document_libs + udf_libs + notebook_libs,
+    "qdrant": qdrant_libs,
+    "postgres": postgres_libs,
+    "ludwig": ludwig_libs,
+    "forecasting": forecasting_libs,
+    # everything except ray, qdrant, ludwig and postgres. The first three fail on pyhton 3.11.
+    "dev": dev_libs + vision_libs + document_libs + function_libs + notebook_libs + forecasting_libs,
 }
 
 setup(
@@ -165,5 +190,11 @@ setup(
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRA_REQUIRES,
     include_package_data=True,
-    package_data={"evadb": ["evadb.yml", "parser/evadb.lark"]},
+    package_data={
+        "evadb": [
+            "evadb.yml",
+            "parser/evadb.lark",
+            "third_party/databases/**/requirements.txt",
+        ]
+    },
 )

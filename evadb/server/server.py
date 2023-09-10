@@ -17,7 +17,7 @@ import string
 from asyncio import StreamReader, StreamWriter
 
 from evadb.database import init_evadb_instance
-from evadb.udfs.udf_bootstrap_queries import init_builtin_udfs
+from evadb.functions.function_bootstrap_queries import init_builtin_functions
 from evadb.utils.logging_manager import logger
 
 
@@ -41,14 +41,16 @@ class EvaServer:
         hostname: hostname of the server
         port: port of the server
         """
-        print(f"EvaDB server started at host {host} and port {port}")
+        from pprint import pprint
+
+        pprint(f"EvaDB server started at host {host} and port {port}")
         self._evadb = init_evadb_instance(db_dir, host, port, custom_db_uri)
 
         self._server = await asyncio.start_server(self.accept_client, host, port)
 
-        # load built-in udfs
+        # load built-in functions
         mode = self._evadb.config.get_value("core", "mode")
-        init_builtin_udfs(self._evadb, mode=mode)
+        init_builtin_functions(self._evadb, mode=mode)
 
         async with self._server:
             await self._server.serve_forever()

@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from evadb.udfs.abstract.hf_abstract_udf import AbstractHFUdf
+from evadb.functions.abstract.hf_abstract_function import AbstractHFFunction
 from evadb.utils.generic_utils import EvaDBEnum, try_to_import_decord
 
 
@@ -28,16 +28,22 @@ class HFInputTypes(EvaDBEnum):
     MULTIMODAL_TEXT_IMAGE  # noqa: F821
 
 
-class TextHFModel(AbstractHFUdf):
+class TextHFModel(AbstractHFFunction):
     """
     Base Model for all HF Models that take in text as input
     """
+
+    def __call__(self, *args, **kwargs):
+        # Use truncation=True to handle the case where num of tokens is larger
+        # than limit
+        # Ref: https://stackoverflow.com/questions/66954682/token-indices-sequence-length-is-longer-than-the-specified-maximum-sequence-leng
+        return self.forward(args[0], truncation=True)
 
     def input_formatter(self, inputs: Any):
         return inputs.values.flatten().tolist()
 
 
-class ImageHFModel(AbstractHFUdf):
+class ImageHFModel(AbstractHFFunction):
     """
     Base Model for all HF Models that take in images as input
     """
@@ -51,7 +57,7 @@ class ImageHFModel(AbstractHFUdf):
         return images
 
 
-class AudioHFModel(AbstractHFUdf):
+class AudioHFModel(AbstractHFFunction):
     """
     Base Model for all HF Models that take in audio as input
     """

@@ -26,7 +26,7 @@ class PlanOprType(Enum):
     CREATE = auto()
     RENAME = auto()
     DROP_OBJECT = auto()
-    CREATE_UDF = auto()
+    CREATE_FUNCTION = auto()
     LOAD_DATA = auto()
     UNION = auto()
     GROUP_BY = auto()
@@ -38,7 +38,6 @@ class PlanOprType(Enum):
     HASH_JOIN = auto()
     LATERAL_JOIN = auto()
     HASH_BUILD = auto()
-    CREATE_MATERIALIZED_VIEW = auto()
     EXCHANGE = auto()
     PREDICATE_FILTER = auto()
     PROJECT = auto()
@@ -47,4 +46,6 @@ class PlanOprType(Enum):
     CREATE_INDEX = auto()
     APPLY_AND_MERGE = auto()
     VECTOR_INDEX_SCAN = auto()
+    NATIVE = auto()
+    SQLALCHEMY = auto()
     # add other types

@@ -12,12 +12,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from evadb.parser.create_udf_statement import CreateUDFStatement
+from evadb.parser.create_function_statement import CreateFunctionStatement
+from evadb.parser.create_statement import CreateDatabaseStatement, CreateTableStatement
 from evadb.parser.drop_object_statement import DropObjectStatement
+from evadb.parser.explain_statement import ExplainStatement
+from evadb.parser.insert_statement import InsertTableStatement
 from evadb.parser.load_statement import LoadDataStatement
 from evadb.parser.parser import Parser
+from evadb.parser.rename_statement import RenameTableStatement
 from evadb.parser.select_statement import SelectStatement
+from evadb.parser.show_statement import ShowStatement
 from evadb.parser.types import ObjectType
+from evadb.parser.use_statement import UseStatement
+
+# List of statements for which we omit binder and optimizer and pass the statement
+# directly to the executor.
+SKIP_BINDER_AND_OPTIMIZER_STATEMENTS = (CreateDatabaseStatement, UseStatement)
 
 
 def parse_expression(expr: str):
@@ -48,25 +58,63 @@ def parse_table_clause(expr: str, chunk_size: int = None, chunk_overlap: int = N
     return stmt.from_table
 
 
-def parse_create_udf(
-    udf_name: str, if_not_exists: bool, udf_file_path: str, type: str, **kwargs
+def parse_create_function(
+    function_name: str,
+    if_not_exists: bool,
+    function_file_path: str,
+    type: str,
+    **kwargs,
 ):
     mock_query = (
-        f"CREATE UDF IF NOT EXISTS {udf_name}"
+        f"CREATE FUNCTION IF NOT EXISTS {function_name}"
         if if_not_exists
-        else f"CREATE UDF {udf_name}"
+        else f"CREATE FUNCTION {function_name}"
     )
     if type is not None:
         mock_query += f" TYPE {type}"
         task, model = kwargs["task"], kwargs["model"]
         if task is not None and model is not None:
-            mock_query += f" 'task' '{task}' 'model' '{model}'"
+            mock_query += f" TASK '{task}' MODEL '{model}'"
     else:
-        mock_query += f" IMPL '{udf_file_path}'"
+        mock_query += f" IMPL '{function_file_path}'"
     mock_query += ";"
 
     stmt = Parser().parse(mock_query)[0]
-    assert isinstance(stmt, CreateUDFStatement), "Expected a create udf statement"
+    assert isinstance(
+        stmt, CreateFunctionStatement
+    ), "Expected a create function statement"
+    return stmt
+
+
+def parse_create_table(table_name: str, if_not_exists: bool, columns: str, **kwargs):
+    mock_query = (
+        f"CREATE TABLE IF NOT EXISTS {table_name} ({columns});"
+        if if_not_exists
+        else f"CREATE TABLE {table_name} ({columns});"
+    )
+    stmt = Parser().parse(mock_query)[0]
+    assert isinstance(stmt, CreateTableStatement), "Expected a create table statement"
+    return stmt
+
+
+def parse_show(show_type: str, **kwargs):
+    mock_query = f"SHOW {show_type};"
+    stmt = Parser().parse(mock_query)[0]
+    assert isinstance(stmt, ShowStatement), "Expected a show statement"
+    return stmt
+
+
+def parse_explain(query: str, **kwargs):
+    mock_query = f"EXPLAIN {query};"
+    stmt = Parser().parse(mock_query)[0]
+    assert isinstance(stmt, ExplainStatement), "Expected a explain statement"
+    return stmt
+
+
+def parse_insert(table_name: str, columns: str, values: str, **kwargs):
+    mock_query = f"INSERT INTO {table_name} {columns} VALUES {values};"
+    stmt = Parser().parse(mock_query)[0]
+    assert isinstance(stmt, InsertTableStatement), "Expected a insert statement"
     return stmt
 
 
@@ -93,8 +141,8 @@ def parse_drop_table(table_name: str, if_exists: bool):
     return parse_drop(ObjectType.TABLE, table_name, if_exists)
 
 
-def parse_drop_udf(udf_name: str, if_exists: bool):
-    return parse_drop(ObjectType.UDF, udf_name, if_exists)
+def parse_drop_function(function_name: str, if_exists: bool):
+    return parse_drop(ObjectType.FUNCTION, function_name, if_exists)
 
 
 def parse_drop_index(index_name: str, if_exists: bool):
@@ -126,3 +174,10 @@ def parse_sql_orderby_expr(expr: str):
     stmt = Parser().parse(mock_query)[0]
     assert isinstance(stmt, SelectStatement), "Expected a select statement"
     return stmt.orderby_list
+
+
+def parse_rename(old_name: str, new_name: str):
+    mock_query = f"RENAME TABLE {old_name} TO {new_name};"
+    stmt = Parser().parse(mock_query)[0]
+    assert isinstance(stmt, RenameTableStatement), "Expected a rename statement"
+    return stmt

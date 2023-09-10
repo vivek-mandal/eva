@@ -205,8 +205,13 @@ dep.txt
 *eva_data/
 *evadb_data/
 
-# models
+# models, but not apply to codebase
 models/
+!evadb/models
+!evadb/catalog/models
+!test/unit_tests/models
+!test/unit_tests/catalog/models
+
 
 # test files
 test.py
@@ -218,3 +223,5 @@ eva_db/*
 
 # older code
 eva/*
+
+blog.md

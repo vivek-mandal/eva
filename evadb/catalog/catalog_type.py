@@ -31,6 +31,10 @@ class TableType(EvaDBEnum):
     # cannot be accessed/modified directly by user
     SYSTEM_STRUCTURED_DATA  # noqa: F821
 
+    # Reserved for tables that are stored in native
+    # database backend.
+    NATIVE_DATA  # noqa: F821
+
 
 class ColumnType(EvaDBEnum):
     BOOLEAN  # noqa: F821
@@ -39,6 +43,19 @@ class ColumnType(EvaDBEnum):
     TEXT  # noqa: F821
     NDARRAY  # noqa: F821
     ANY  # noqa: F821
+
+    @classmethod
+    def python_type_to_evadb_type(cls, dtype):
+        if dtype is str:
+            return cls.TEXT
+        elif dtype is int:
+            return cls.INTEGER
+        elif dtype is float:
+            return cls.FLOAT
+        elif dtype is bool:
+            return cls.BOOLEAN
+        else:
+            return cls.NDARRAY
 
 
 class NdArrayType(EvaDBEnum):

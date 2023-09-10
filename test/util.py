@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
 import gc
 import multiprocessing as mp
 import os
@@ -25,7 +24,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import ray
 from mock import MagicMock
 
 from evadb.binder.statement_binder import StatementBinder
@@ -35,6 +33,13 @@ from evadb.configuration.configuration_manager import ConfigurationManager
 from evadb.configuration.constants import EvaDB_DATABASE_DIR, EvaDB_INSTALLATION_DIR
 from evadb.database import init_evadb_instance
 from evadb.expression.function_expression import FunctionExpression
+from evadb.functions.abstract.abstract_function import AbstractClassifierFunction
+from evadb.functions.decorators import decorators
+from evadb.functions.decorators.io_descriptors.data_types import (
+    NumpyArray,
+    PandasDataframe,
+)
+from evadb.functions.function_bootstrap_queries import init_builtin_functions
 from evadb.models.storage.batch import Batch
 from evadb.optimizer.operators import LogicalFilter, Operator
 from evadb.optimizer.plan_generator import PlanGenerator
@@ -42,11 +47,11 @@ from evadb.optimizer.statement_to_opr_converter import StatementToPlanConverter
 from evadb.parser.parser import Parser
 from evadb.plan_nodes.abstract_plan import AbstractPlan
 from evadb.server.command_handler import execute_query_fetch_all
-from evadb.udfs.abstract.abstract_udf import AbstractClassifierUDF
-from evadb.udfs.decorators import decorators
-from evadb.udfs.decorators.io_descriptors.data_types import NumpyArray, PandasDataframe
-from evadb.udfs.udf_bootstrap_queries import init_builtin_udfs
-from evadb.utils.generic_utils import remove_directory_contents, try_to_import_cv2
+from evadb.utils.generic_utils import (
+    is_ray_available,
+    remove_directory_contents,
+    try_to_import_cv2,
+)
 
 NUM_FRAMES = 10
 FRAME_SIZE = (32, 32)
@@ -90,9 +95,10 @@ def is_ray_stage_running():
 
 
 def shutdown_ray():
-    db_dir = suffix_pytest_xdist_worker_id_to_dir(EvaDB_DATABASE_DIR)
-    config = ConfigurationManager(Path(db_dir))
-    if config.get_value("experimental", "ray"):
+    is_ray_enabled = is_ray_available()
+    if is_ray_enabled:
+        import ray
+
         ray.shutdown()
 
 
@@ -226,18 +232,18 @@ def get_physical_query_plan(
     db, query: str, rule_manager=None, cost_model=None
 ) -> AbstractPlan:
     l_plan = get_logical_query_plan(db, query)
-    p_plan = asyncio.run(PlanGenerator(db, rule_manager, cost_model).build(l_plan))
+    p_plan = PlanGenerator(db, rule_manager, cost_model).build(l_plan)
     return p_plan
 
 
-def remove_udf_cache(db, query):
+def remove_function_cache(db, query):
     plan = next(get_logical_query_plan(db, query).find_all(LogicalFilter))
     func_exprs = plan.predicate.find_all(FunctionExpression)
     for expr in func_exprs:
         cache_name = expr.signature()
-        udf_cache = db.catalog.get_udf_cache_catalog_entry_by_name(cache_name)
-        if udf_cache is not None:
-            cache_dir = Path(udf_cache.cache_path)
+        function_cache = db.catalog.get_function_cache_catalog_entry_by_name(cache_name)
+        if function_cache is not None:
+            cache_dir = Path(function_cache.cache_path)
             if cache_dir.exists():
                 shutil.rmtree(cache_dir)
 
@@ -502,12 +508,12 @@ def create_dummy_4d_batches(
         yield Batch(df)
 
 
-def load_udfs_for_testing(db, mode="debug"):
-    # DEBUG MODE: ALL UDFs
-    init_builtin_udfs(db, mode=mode)
+def load_functions_for_testing(db, mode="debug"):
+    # DEBUG MODE: ALL Functions
+    init_builtin_functions(db, mode=mode)
 
 
-class DummyObjectDetector(AbstractClassifierUDF):
+class DummyObjectDetector(AbstractClassifierFunction):
     def setup(self, *args, **kwargs):
         pass
 
@@ -531,7 +537,7 @@ class DummyObjectDetector(AbstractClassifierUDF):
         return np.array([label])
 
 
-class DummyMultiObjectDetector(AbstractClassifierUDF):
+class DummyMultiObjectDetector(AbstractClassifierFunction):
     """
     Returns multiple objects for each frame
     """
@@ -558,7 +564,7 @@ class DummyMultiObjectDetector(AbstractClassifierUDF):
         return np.array([label, label])
 
 
-class DummyFeatureExtractor(AbstractClassifierUDF):
+class DummyFeatureExtractor(AbstractClassifierFunction):
     """
     Returns a feature for a frame.
     """
@@ -588,8 +594,8 @@ class DummyFeatureExtractor(AbstractClassifierUDF):
         return ret
 
 
-class DummyObjectDetectorDecorators(AbstractClassifierUDF):
-    @decorators.setup(cacheable=True, udf_type="object_detection", batchable=True)
+class DummyObjectDetectorDecorators(AbstractClassifierFunction):
+    @decorators.setup(cacheable=True, function_type="object_detection", batchable=True)
     def setup(self, *args, **kwargs):
         pass
 

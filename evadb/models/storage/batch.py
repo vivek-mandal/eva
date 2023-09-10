@@ -169,6 +169,7 @@ class Batch:
         """
         Execute function expression on frames.
         """
+        self.drop_column_alias()
         return Batch(expr(self._frames))
 
     def iterrows(self):
@@ -259,6 +260,14 @@ class Batch:
             return Batch()
 
         frames = [batch.frames for batch in batches]
+
+        # Check merging matched indices
+        frames_index = [list(frame.index) for frame in frames]
+        for i, frame_index in enumerate(frames_index):
+            assert (
+                frame_index == frames_index[i - 1]
+            ), "Merging of DataFrames with unmatched indices can cause undefined behavior"
+
         new_frames = pd.concat(frames, axis=1, copy=False, ignore_index=False).fillna(
             method="ffill"
         )
@@ -429,7 +438,7 @@ class Batch:
         # table1.a, table1.b, table1.c -> a, b, c
         new_col_names = []
         for col_name in self.columns:
-            if "." in col_name:
+            if isinstance(col_name, str) and "." in col_name:
                 new_col_names.append(col_name.split(".")[1])
             else:
                 new_col_names.append(col_name)

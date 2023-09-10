@@ -18,10 +18,10 @@ from lark import Tree
 from evadb.catalog.catalog_type import ColumnType, NdArrayType, VectorStoreType
 from evadb.expression.tuple_value_expression import TupleValueExpression
 from evadb.parser.create_index_statement import CreateIndexStatement
-from evadb.parser.create_mat_view_statement import CreateMaterializedViewStatement
 from evadb.parser.create_statement import (
     ColConstraintInfo,
     ColumnDefinition,
+    CreateDatabaseStatement,
     CreateTableStatement,
 )
 from evadb.parser.table_ref import TableRef
@@ -232,30 +232,6 @@ class CreateTable:
         dimensions = self.dimension_helper(tree)
         return dimensions
 
-    # MATERIALIZED VIEW
-    def create_materialized_view(self, tree):
-        view_info = None
-        if_not_exists = False
-        query = None
-        uid_list = []
-
-        for child in tree.children:
-            if isinstance(child, Tree):
-                if child.data == "table_name":
-                    view_info = self.visit(child)
-                elif child.data == "if_not_exists":
-                    if_not_exists = True
-                elif child.data == "uid_list":
-                    uid_list = self.visit(child)
-                elif child.data == "simple_select":
-                    query = self.visit(child)
-
-        # When uid_list is empty, the column information is inferred from the subquery in the binder.
-        col_list = [ColumnDefinition(uid.name, None, None, None) for uid in uid_list]
-        return CreateMaterializedViewStatement(
-            view_info, col_list, if_not_exists, query
-        )
-
     def vector_store_type(self, tree):
         vector_store_type = None
         token = tree.children[1]
@@ -285,10 +261,10 @@ class CreateTable:
                 elif child.data == "index_elem":
                     index_elem = self.visit(child)
 
-        # Parse either a single UDF function call or column list.
-        col_list, udf_func = None, None
+        # Parse either a single function call or column list.
+        col_list, function = None, None
         if not isinstance(index_elem, list):
-            udf_func = index_elem
+            function = index_elem
 
             # Traverse to the tuple value expression.
             while not isinstance(index_elem, TupleValueExpression):
@@ -300,5 +276,39 @@ class CreateTable:
         ]
 
         return CreateIndexStatement(
-            index_name, table_ref, col_list, vector_store_type, udf_func
+            index_name, table_ref, col_list, vector_store_type, function
         )
+
+
+class CreateDatabase:
+    def create_database(self, tree):
+        database_name = None
+        if_not_exists = False
+        engine = None
+        param_dict = {}
+
+        for child in tree.children:
+            if isinstance(child, Tree):
+                if child.data == "if_not_exists":
+                    if_not_exists = True
+                elif child.data == "uid":
+                    database_name = self.visit(child)
+                elif child.data == "create_database_engine_clause":
+                    engine, param_dict = self.visit(child)
+
+        create_stmt = CreateDatabaseStatement(
+            database_name, if_not_exists, engine, param_dict
+        )
+        return create_stmt
+
+    def create_database_engine_clause(self, tree):
+        engine = None
+        param_dict = {}
+        for child in tree.children:
+            if isinstance(child, Tree):
+                if child.data == "string_literal":
+                    engine = self.visit(child).value
+                elif child.data == "colon_param_dict":
+                    param_dict = self.visit(child)
+
+        return engine, param_dict

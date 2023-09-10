@@ -13,11 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import contextlib
+import json
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
 import sqlalchemy
 from sqlalchemy.engine import Engine
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy_utils import create_database, database_exists
 
 from evadb.catalog.catalog_type import (
@@ -31,13 +33,32 @@ from evadb.catalog.sql_config import CATALOG_TABLES
 from evadb.utils.logging_manager import logger
 
 
+class TextPickleType(TypeDecorator):
+    """Used to handle serialization and deserialization to Text
+    https://stackoverflow.com/questions/1378325/python-dicts-in-sqlalchemy
+    """
+
+    impl = sqlalchemy.String(1024)
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            value = json.dumps(value)
+
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            value = json.loads(value)
+        return value
+
+
 def init_db(engine: Engine):
     """Create database if doesn't exist and create all tables."""
     if not database_exists(engine.url):
         logger.info("Database does not exist, creating database.")
         create_database(engine.url)
-        logger.info("Creating tables")
-        BaseModel.metadata.create_all(bind=engine)
+    logger.info("Creating tables")
+    BaseModel.metadata.create_all(bind=engine)
 
 
 def truncate_catalog_tables(engine: Engine):
@@ -77,15 +98,15 @@ def drop_all_tables_except_catalog(engine: Engine):
 
 
 @dataclass(unsafe_hash=True)
-class UdfCacheCatalogEntry:
-    """Dataclass representing an entry in the `UdfCatalog`."""
+class FunctionCacheCatalogEntry:
+    """Dataclass representing an entry in the `FunctionCatalog`."""
 
     name: str
-    udf_id: int
+    function_id: int
     cache_path: str
     args: Tuple[str]
     row_id: int = None
-    udf_depends: Tuple[int] = field(compare=False, default_factory=tuple)
+    function_depends: Tuple[int] = field(compare=False, default_factory=tuple)
     col_depends: Tuple[int] = field(compare=False, default_factory=tuple)
 
 
@@ -101,7 +122,9 @@ class ColumnCatalogEntry:
     table_id: int = None
     table_name: str = None
     row_id: int = None
-    dep_caches: List[UdfCacheCatalogEntry] = field(compare=False, default_factory=list)
+    dep_caches: List[FunctionCacheCatalogEntry] = field(
+        compare=False, default_factory=list
+    )
 
 
 @dataclass(unsafe_hash=True)
@@ -117,22 +140,22 @@ class TableCatalogEntry:
 
 
 @dataclass(unsafe_hash=True)
-class UdfMetadataCatalogEntry:
-    """Class decouples the `UdfMetadataCatalog` from the sqlalchemy."""
+class FunctionMetadataCatalogEntry:
+    """Class decouples the `FunctionMetadataCatalog` from the sqlalchemy."""
 
     key: str
     value: str
-    udf_id: int = None
-    udf_name: str = None
+    function_id: int = None
+    function_name: str = None
     row_id: int = None
 
     def display_format(self):
-        return f"{self.udf_name} - {self.key}: {self.value}"
+        return f"{self.function_name} - {self.key}: {self.value}"
 
 
 @dataclass(unsafe_hash=True)
-class UdfIOCatalogEntry:
-    """Class decouples the `UdfIOCatalog` from the sqlalchemy."""
+class FunctionIOCatalogEntry:
+    """Class decouples the `FunctionIOCatalog` from the sqlalchemy."""
 
     name: str
     type: ColumnType
@@ -140,8 +163,8 @@ class UdfIOCatalogEntry:
     array_type: NdArrayType = None
     array_dimensions: Tuple[int] = None
     is_input: bool = True
-    udf_id: int = None
-    udf_name: str = None
+    function_id: int = None
+    function_name: str = None
     row_id: int = None
 
     def display_format(self):
@@ -155,16 +178,16 @@ class UdfIOCatalogEntry:
 
 
 @dataclass(unsafe_hash=True)
-class UdfCostCatalogEntry:
-    """Dataclass representing an entry in the `UdfCostCatalog`."""
+class FunctionCostCatalogEntry:
+    """Dataclass representing an entry in the `FunctionCostCatalog`."""
 
     name: str
     cost: float = None
-    udf_id: int = None
+    function_id: int = None
     row_id: int = None
 
     def display_format(self):
-        return {"udf_id": self.udf_id, "name": self.name, "cost": self.cost}
+        return {"function_id": self.function_id, "name": self.name, "cost": self.cost}
 
 
 @dataclass(unsafe_hash=True)
@@ -176,13 +199,13 @@ class IndexCatalogEntry:
     type: VectorStoreType
     row_id: int = None
     feat_column_id: int = None
-    udf_signature: str = None
+    function_signature: str = None
     feat_column: ColumnCatalogEntry = None
 
 
 @dataclass(unsafe_hash=True)
-class UdfCatalogEntry:
-    """Dataclass representing an entry in the `UdfCatalog`.
+class FunctionCatalogEntry:
+    """Dataclass representing an entry in the `FunctionCatalog`.
     This is done to ensure we don't expose the sqlalchemy dependencies beyond catalog service. Further, sqlalchemy does not allow sharing of objects across threads.
     """
 
@@ -191,10 +214,14 @@ class UdfCatalogEntry:
     type: str
     checksum: str
     row_id: int = None
-    args: List[UdfIOCatalogEntry] = field(compare=False, default_factory=list)
-    outputs: List[UdfIOCatalogEntry] = field(compare=False, default_factory=list)
-    metadata: List[UdfMetadataCatalogEntry] = field(compare=False, default_factory=list)
-    dep_caches: List[UdfIOCatalogEntry] = field(compare=False, default_factory=list)
+    args: List[FunctionIOCatalogEntry] = field(compare=False, default_factory=list)
+    outputs: List[FunctionIOCatalogEntry] = field(compare=False, default_factory=list)
+    metadata: List[FunctionMetadataCatalogEntry] = field(
+        compare=False, default_factory=list
+    )
+    dep_caches: List[FunctionIOCatalogEntry] = field(
+        compare=False, default_factory=list
+    )
 
     def display_format(self):
         def _to_str(col):
@@ -208,4 +235,23 @@ class UdfCatalogEntry:
             "type": self.type,
             "impl": self.impl_file_path,
             "metadata": self.metadata,
+        }
+
+
+@dataclass(unsafe_hash=True)
+class DatabaseCatalogEntry:
+    """Dataclass representing an entry in the `DatabaseCatalog`.
+    This is done to ensure we don't expose the sqlalchemy dependencies beyond catalog service. Further, sqlalchemy does not allow sharing of objects across threads.
+    """
+
+    name: str
+    engine: str
+    params: dict
+    row_id: int = None
+
+    def display_format(self):
+        return {
+            "name": self.name,
+            "engine": self.engine,
+            "params": self.params,
         }

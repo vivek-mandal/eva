@@ -22,13 +22,15 @@ import yaml
 from evadb.configuration.constants import (
     CACHE_DIR,
     DB_DEFAULT_NAME,
+    FUNCTION_DIR,
     INDEX_DIR,
+    MODEL_DIR,
     S3_DOWNLOAD_DIR,
     TMP_DIR,
-    UDF_DIR,
     EvaDB_CONFIG_FILE,
     EvaDB_DATASET_DIR,
 )
+from evadb.utils.generic_utils import parse_config_yml
 from evadb.utils.logging_manager import logger as evadb_logger
 
 
@@ -46,7 +48,18 @@ def get_base_config(evadb_installation_dir: Path) -> Path:
 
 
 def get_default_db_uri(evadb_dir: Path):
-    return f"sqlite:///{evadb_dir.resolve()}/{DB_DEFAULT_NAME}"
+    """
+    Get the default database uri.
+
+    Arguments:
+        evadb_dir: path to evadb database directory
+    """
+    config_obj = parse_config_yml()
+    if config_obj["core"]["catalog_database_uri"]:
+        return config_obj["core"]["catalog_database_uri"]
+    else:
+        # Default to sqlite.
+        return f"sqlite:///{evadb_dir.resolve()}/{DB_DEFAULT_NAME}"
 
 
 def bootstrap_environment(evadb_dir: Path, evadb_installation_dir: Path):
@@ -70,7 +83,7 @@ def bootstrap_environment(evadb_dir: Path, evadb_installation_dir: Path):
     config_obj = {}
     with default_config_path.open("r") as yml_file:
         config_obj = yaml.load(yml_file, Loader=yaml.FullLoader)
-    config_obj = merge_dict_of_dicts(config_obj, config_default_dict)
+    config_obj = merge_dict_of_dicts(config_default_dict, config_obj)
     mode = config_obj["core"]["mode"]
 
     # set logger to appropriate level (debug or release)
@@ -90,7 +103,8 @@ def create_directories_and_get_default_config_values(
     cache_dir = evadb_dir / CACHE_DIR
     s3_dir = evadb_dir / S3_DOWNLOAD_DIR
     tmp_dir = evadb_dir / TMP_DIR
-    udf_dir = evadb_dir / UDF_DIR
+    function_dir = evadb_dir / FUNCTION_DIR
+    model_dir = evadb_dir / MODEL_DIR
 
     if not evadb_dir.exists():
         evadb_dir.mkdir(parents=True, exist_ok=True)
@@ -104,8 +118,10 @@ def create_directories_and_get_default_config_values(
         s3_dir.mkdir(parents=True, exist_ok=True)
     if not tmp_dir.exists():
         tmp_dir.mkdir(parents=True, exist_ok=True)
-    if not udf_dir.exists():
-        udf_dir.mkdir(parents=True, exist_ok=True)
+    if not function_dir.exists():
+        function_dir.mkdir(parents=True, exist_ok=True)
+    if not model_dir.exists():
+        model_dir.mkdir(parents=True, exist_ok=True)
 
     config_obj = {}
     config_obj["core"] = {}
@@ -117,7 +133,8 @@ def create_directories_and_get_default_config_values(
     config_obj["storage"]["cache_dir"] = str(cache_dir.resolve())
     config_obj["storage"]["s3_download_dir"] = str(s3_dir.resolve())
     config_obj["storage"]["tmp_dir"] = str(tmp_dir.resolve())
-    config_obj["storage"]["udf_dir"] = str(udf_dir.resolve())
+    config_obj["storage"]["function_dir"] = str(function_dir.resolve())
+    config_obj["storage"]["model_dir"] = str(model_dir.resolve())
     if category and key:
         return config_obj.get(category, {}).get(key, None)
     elif category:
@@ -130,13 +147,15 @@ def merge_dict_of_dicts(dict1, dict2):
     merged_dict = dict1.copy()
 
     for key, value in dict2.items():
-        if (
-            key in merged_dict
-            and isinstance(merged_dict[key], dict)
-            and isinstance(value, dict)
-        ):
-            merged_dict[key] = merge_dict_of_dicts(merged_dict[key], value)
-        else:
-            merged_dict[key] = value
+        # Overwrite only if some value is specified.
+        if value:
+            if (
+                key in merged_dict
+                and isinstance(merged_dict[key], dict)
+                and isinstance(value, dict)
+            ):
+                merged_dict[key] = merge_dict_of_dicts(merged_dict[key], value)
+            else:
+                merged_dict[key] = value
 
     return merged_dict

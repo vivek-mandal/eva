@@ -27,7 +27,7 @@ from evadb.server.command_handler import execute_query_fetch_all
     min_rounds=1,
 )
 @pytest.mark.notparallel
-def test_should_run_pytorch_and_yolo(benchmark, setup_pytorch_tests):
+def test_should_run_benchmark_pytorch_and_yolo(benchmark, setup_pytorch_tests):
     select_query = """SELECT Yolo(data) FROM MyVideo
                     WHERE id < 5;"""
     actual_batch = benchmark(execute_query_fetch_all, setup_pytorch_tests, select_query)
@@ -41,7 +41,7 @@ def test_should_run_pytorch_and_yolo(benchmark, setup_pytorch_tests):
     min_rounds=1,
 )
 @pytest.mark.notparallel
-def test_should_run_pytorch_and_facenet(benchmark, setup_pytorch_tests):
+def test_should_run_benchmark_pytorch_and_facenet(benchmark, setup_pytorch_tests):
     create_udf_query = """CREATE UDF IF NOT EXISTS FaceDetector
                 INPUT  (frame NDARRAY UINT8(3, ANYDIM, ANYDIM))
                 OUTPUT (bboxes NDARRAY FLOAT32(ANYDIM, 4),
@@ -65,7 +65,7 @@ def test_should_run_pytorch_and_facenet(benchmark, setup_pytorch_tests):
     min_rounds=1,
 )
 @pytest.mark.notparallel
-def test_should_run_pytorch_and_resnet50(benchmark, setup_pytorch_tests):
+def test_should_run_benchmark_pytorch_and_resnet50(benchmark, setup_pytorch_tests):
     create_udf_query = """CREATE UDF IF NOT EXISTS FeatureExtractor
                 INPUT  (frame NDARRAY UINT8(3, ANYDIM, ANYDIM))
                 OUTPUT (features NDARRAY FLOAT32(ANYDIM))
@@ -109,7 +109,7 @@ def test_automatic_speech_recognition(benchmark, setup_pytorch_tests):
     udf_name = "SpeechRecognizer"
     create_udf = (
         f"CREATE UDF {udf_name} TYPE HuggingFace "
-        "'task' 'automatic-speech-recognition' 'model' 'openai/whisper-base';"
+        "TASK 'automatic-speech-recognition' MODEL 'openai/whisper-base';"
     )
     execute_query_fetch_all(setup_pytorch_tests, create_udf)
 
@@ -135,14 +135,14 @@ def test_summarization_from_video(benchmark, setup_pytorch_tests):
     asr_udf = "SpeechRecognizer"
     create_udf = (
         f"CREATE UDF {asr_udf} TYPE HuggingFace "
-        "'task' 'automatic-speech-recognition' 'model' 'openai/whisper-base';"
+        "TASK 'automatic-speech-recognition' MODEL 'openai/whisper-base';"
     )
     execute_query_fetch_all(setup_pytorch_tests, create_udf)
 
     summary_udf = "Summarizer"
     create_udf = (
         f"CREATE UDF {summary_udf} TYPE HuggingFace "
-        "'task' 'summarization' 'model' 'philschmid/bart-large-cnn-samsum' 'min_length' 10 'max_length' 100;"
+        "TASK 'summarization' MODEL 'philschmid/bart-large-cnn-samsum' MIN_LENGTH 10 MAX_LENGTH 100;"
     )
     execute_query_fetch_all(setup_pytorch_tests, create_udf)
 

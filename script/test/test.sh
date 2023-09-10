@@ -1,15 +1,109 @@
 #!/bin/bash
 
-MODE=""                                   # Mode for testing
+##################################################
+## FUNCTION START
+##################################################
+
 usage() {                                 # Function: Print a help message.
   echo "Usage: $0 [ -m MODE ]"  
 }
+
 exit_abnormal() {                         # Function: Exit with error.
   usage
   exit 1 # Failure
 }
 
-MODE="ALL"
+print_error_code() {
+  code=$1
+  info=$2
+  if [ $code -ne 0 ];
+  then
+    echo "${info} CODE: --|${code}|-- FAILURE"
+    exit $code
+  else
+    echo "${info} CODE: --|${code}|-- SUCCESS"
+  fi
+}
+
+check_formatter() {
+  sh script/formatting/pre-push.sh
+  code=$?
+  print_error_code $code "FORMATTER"
+}
+
+check_linter() {
+  PYTHONPATH=./ python -m flake8 --config=.flake8 evadb/ test/ 
+  code=$?
+  print_error_code $code "LINTER"
+}
+
+check_doc_build() {
+  pushd docs
+  make html
+  code=$?
+  popd
+  print_error_code $code "DOC BUILD"  
+}
+
+check_doc_link() {
+  pushd docs
+  make linkcheck
+  code=$?
+  popd
+  print_error_code $code "DOC LINK CHECK"  
+}
+
+check_readme_link() {
+  if command -v npm > /dev/null && command -v npx >/dev/null && npm list --depth=0 | grep markdown-link-check; then
+    npx markdown-link-check -c ./script/test/link_check_config.json ./README.md 
+    code=$?
+    print_error_code $code "README LINK CHECK"
+  else
+    echo "README LINK CHECK: --||-- SKIPPED (missing dependency: npm install markdown-link-check)"		  
+  fi
+}
+
+unit_test() {
+  PYTHONPATH=./ pytest test/unit_tests/ --durations=20 --cov-report term-missing:skip-covered  --cov-config=.coveragerc --cov-context=test --cov=evadb/ --capture=sys --tb=short -v -rsf --log-level=WARNING -m "not benchmark"
+  code=$?
+  print_error_code $code "UNIT TEST"
+}
+
+short_integration_test() {
+  PYTHONPATH=./ pytest test/integration_tests/short/ --durations=20 --cov-report term-missing:skip-covered  --cov-config=.coveragerc --cov-context=test --cov=evadb/ --capture=sys --tb=short -v -rsf --log-level=WARNING -m "not benchmark"
+  code=$?
+  print_error_code $code "SHORT INTEGRATION TEST"
+}
+
+long_integration_test() {
+  PYTHONPATH=./ python -m pytest test/integration_tests/long/ -p no:cov -m "not benchmark"
+  code=$?
+  print_error_code $code "LONG INTEGRATION TEST"
+}
+
+notebook_test() {
+  PYTHONPATH=./ python -m pytest --durations=5 --nbmake --overwrite "./tutorials" --capture=sys --tb=short -v --log-level=WARNING --nbmake-timeout=3000 --ignore="tutorials/08-chatgpt.ipynb" --ignore="tutorials/14-food-review-tone-analysis-and-response.ipynb" --ignore="tutorials/15-AI-powered-join.ipynb"
+  code=$?
+  print_error_code $code "NOTEBOOK TEST"
+}
+
+full_test() {
+  PYTHONPATH=./ pytest test/ --durations=20 --cov-report term-missing:skip-covered  --cov-config=.coveragerc --cov-context=test --cov=evadb/ --capture=sys --tb=short -v -rsf --log-level=WARNING -m "not benchmark" --ignore=test/third_party_tests/ --ignore=test/app_tests/
+  code=$?
+  print_error_code $code "FULL TEST"
+}
+
+no_coverage_full_test() {
+  PYTHONPATH=./ python -m pytest -p no:cov test/ -m "not benchmark" --ignore=test/third_party_tests/ --ignore=test/app_tests/
+  code=$?
+  print_error_code $code "FULL TEST"
+}
+
+##################################################
+## FUNCTION END 
+##################################################
+
+MODE="FULL"
 
 while getopts "m:" options; do            
   case "${options}" in                    # 
@@ -38,88 +132,81 @@ echo "MODE: --|${MODE}|--"
 
 if [[ ( "$OSTYPE" != "msys" ) && ( "$MODE" = "LINTER" || "$MODE" = "ALL" ) ]];
 then 
-    # Run black, isort, linter 
-    sh script/formatting/pre-push.sh
-    formatter_code=$?
-    if [ $formatter_code -ne 0 ];
-    then
-        echo "FORMATTER CODE: --|${formatter_code}|-- FAILURE"
-        exit $formatter_code
-    else 
-        echo "FORMATTER CODE: --|${formatter_code}|-- SUCCESS"
-    fi
+  # Run black, isort, linter 
+  check_formatter
 fi
 
 if [[ ( "$OSTYPE" != "msys" ) && ( "$MODE" = "LINTER" || "$MODE" = "ALL" ) ]];
 then 
-    # Keeping the duplicate linting for time being
-    # Run linter (checks code style)
-    PYTHONPATH=./ python -m flake8 --config=.flake8 evadb/ test/ 
-    linter_code=$?
+  # Keeping the duplicate linting for time being
+  # Run linter (checks code style)
+  check_linter
+fi
 
-    if [ "$linter_code" != "0" ];
-    then
-        echo "FLAKE CODE: --|${linter_code}|-- FAILURE"
-        exit $linter_code
-    else
-        echo "FLAKE CODE: --|${linter_code}|-- SUCCESS"
-    fi
+##################################################
+## DOC BUILD TESTS
+##################################################
+
+if [[ ( "$OSTYPE" != "msys" ) && ( "$MODE" = "DOC" || "$MODE" = "ALL" ) ]];
+then 
+  # Run black, isort, linter 
+  check_doc_build
+  check_doc_link
+  check_readme_link
 fi
 
 ##################################################
 ## UNIT TESTS
+##################################################
+
+if [[ "$MODE" = "UNIT" ]];
+then 
+  unit_test
+fi
+
+##################################################
+## SHORT INTEGRATION TESTS
+##################################################
+
+if [[ "$MODE" = "SHORT INTEGRATION" ]];
+then 
+  short_integration_test
+fi
+
+##################################################
+## LONG INTEGRATION TESTS
+##################################################
+
+if [[ "$MODE" = "LONG INTEGRATION" ]];
+then 
+  long_integration_test
+fi
+
+##################################################
+## FULL TESTS
 ## with cov pytest plugin
 ##################################################
 
-if [[ "$OSTYPE" != "msys" ]];
-# Non-Windows
+if [[ "$MODE" = "FULL" ]];
 then
-    if [[ "$MODE" = "TEST" || "$MODE" = "ALL" ]];
+    # Non-Windows
+    if [[ "$OSTYPE" != "msys" ]];
     then
-        PYTHONPATH=./ pytest --durations=20 --capture=sys --tb=short -v --log-level=WARNING -rsf -p no:cov test/ -m "not benchmark"
-    elif [[ "$MODE" = "COV" ]];
-    then
-	# As a workaround, ray needs to be disabled for COV.
-        PYTHONPATH=./ pytest --durations=20 --cov-report term-missing:skip-covered  --cov-config=.coveragerc --cov-context=test --cov=evadb/ --capture=sys --tb=short -v -rsf --log-level=WARNING -m "not benchmark"
-    fi
-
-    test_code=$?
-    if [ "$test_code" != "0" ];
-    then
-        echo "PYTEST CODE: --|${test_code}|-- FAILURE"
-        exit $test_code
+      full_test
+    # Windows -- no need for coverage report
     else
-        echo "PYTEST CODE: --|${test_code}|-- SUCCESS"
-    fi
-# Windows -- no need for coverage report
-else
-    PYTHONPATH=./ python -m pytest -p no:cov test/ -m "not benchmark"
-    test_code=$?
-    if [ "$test_code" != "0" ];
-    then
-        echo "PYTEST CODE: --|${test_code}|-- FAILURE"
-    else
-        echo "PYTEST CODE: --|${test_code}|-- SUCCESS"
+      no_coverage_full_test
     fi
 fi
 
 ##################################################
-## TEST JUPYTER NOTEBOOKS
+## JUPYTER NOTEBOOKS TESTS
 ## with nbmake pytest plugin
 ##################################################
 
-if [[ ( "$OSTYPE" != "msys" ) && ( "$MODE" = "NOTEBOOK" || "$MODE" = "ALL" ) ]];
+if [[ "$MODE" = "NOTEBOOK" ]];
 then 
-    PYTHONPATH=./ python -m pytest --durations=5 --nbmake --overwrite "./tutorials" --capture=sys --tb=short -v --log-level=WARNING --nbmake-timeout=3000
-    notebook_test_code=$?
-    if [ "$notebook_test_code" != "0" ];
-    then
-        cat tutorials/evadb.log
-        echo "NOTEBOOK CODE: --|${notebook_test_code}|-- FAILURE"
-        exit $notebook_test_code
-    else
-        echo "NOTEBOOK CODE: --|${notebook_test_code}|-- SUCCESS"
-    fi
+  notebook_test
 fi
 
 ##################################################
@@ -127,8 +214,7 @@ fi
 ## based on Python version
 ##################################################
 
-if [[ ( "$PYTHON_VERSION" = "3.10" )  && 
-      ( "$MODE" = "COV" ) ]];
+if [[ ( "$PYTHON_VERSION" = "3.10" ) ]]
 then 
     echo "UPLOADING COVERAGE REPORT"
     coveralls

@@ -12,15 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Iterator
+from typing import Iterator, Union
 
 from evadb.database import EvaDBDatabase
 from evadb.executor.abstract_executor import AbstractExecutor
 from evadb.executor.apply_and_merge_executor import ApplyAndMergeExecutor
+from evadb.executor.create_database_executor import CreateDatabaseExecutor
 from evadb.executor.create_executor import CreateExecutor
+from evadb.executor.create_function_executor import CreateFunctionExecutor
 from evadb.executor.create_index_executor import CreateIndexExecutor
-from evadb.executor.create_mat_view_executor import CreateMaterializedViewExecutor
-from evadb.executor.create_udf_executor import CreateUDFExecutor
 from evadb.executor.delete_executor import DeleteExecutor
 from evadb.executor.drop_object_executor import DropObjectExecutor
 from evadb.executor.exchange_executor import ExchangeExecutor
@@ -45,8 +45,12 @@ from evadb.executor.seq_scan_executor import SequentialScanExecutor
 from evadb.executor.show_info_executor import ShowInfoExecutor
 from evadb.executor.storage_executor import StorageExecutor
 from evadb.executor.union_executor import UnionExecutor
+from evadb.executor.use_executor import UseExecutor
 from evadb.executor.vector_index_scan_executor import VectorIndexScanExecutor
 from evadb.models.storage.batch import Batch
+from evadb.parser.create_statement import CreateDatabaseStatement
+from evadb.parser.statement import AbstractStatement
+from evadb.parser.use_statement import UseStatement
 from evadb.plan_nodes.abstract_plan import AbstractPlan
 from evadb.plan_nodes.types import PlanOprType
 from evadb.utils.logging_manager import logger
@@ -66,7 +70,9 @@ class PlanExecutor:
         self._db = evadb
         self._plan = plan
 
-    def _build_execution_tree(self, plan: AbstractPlan) -> AbstractExecutor:
+    def _build_execution_tree(
+        self, plan: Union[AbstractPlan, AbstractStatement]
+    ) -> AbstractExecutor:
         """build the execution tree from plan tree
 
         Arguments:
@@ -78,6 +84,12 @@ class PlanExecutor:
         root = None
         if plan is None:
             return root
+
+        # First handle cases when the plan is actually a parser statement
+        if isinstance(plan, CreateDatabaseStatement):
+            return CreateDatabaseExecutor(db=self._db, node=plan)
+        elif isinstance(plan, UseStatement):
+            return UseExecutor(db=self._db, node=plan)
 
         # Get plan node type
         plan_opr_type = plan.opr_type
@@ -98,8 +110,8 @@ class PlanExecutor:
             executor_node = DropObjectExecutor(db=self._db, node=plan)
         elif plan_opr_type == PlanOprType.INSERT:
             executor_node = InsertExecutor(db=self._db, node=plan)
-        elif plan_opr_type == PlanOprType.CREATE_UDF:
-            executor_node = CreateUDFExecutor(db=self._db, node=plan)
+        elif plan_opr_type == PlanOprType.CREATE_FUNCTION:
+            executor_node = CreateFunctionExecutor(db=self._db, node=plan)
         elif plan_opr_type == PlanOprType.LOAD_DATA:
             executor_node = LoadDataExecutor(db=self._db, node=plan)
         elif plan_opr_type == PlanOprType.GROUP_BY:
@@ -124,8 +136,6 @@ class PlanExecutor:
             executor_node = BuildJoinExecutor(db=self._db, node=plan)
         elif plan_opr_type == PlanOprType.FUNCTION_SCAN:
             executor_node = FunctionScanExecutor(db=self._db, node=plan)
-        elif plan_opr_type == PlanOprType.CREATE_MATERIALIZED_VIEW:
-            executor_node = CreateMaterializedViewExecutor(db=self._db, node=plan)
         elif plan_opr_type == PlanOprType.EXCHANGE:
             executor_node = ExchangeExecutor(db=self._db, node=plan)
             inner_executor = self._build_execution_tree(plan.inner_plan)
@@ -155,7 +165,11 @@ class PlanExecutor:
 
         return executor_node
 
-    def execute_plan(self, ignore_exceptions: bool = False) -> Iterator[Batch]:
+    def execute_plan(
+        self,
+        do_not_raise_exceptions: bool = False,
+        do_not_print_exceptions: bool = False,
+    ) -> Iterator[Batch]:
         """execute the plan tree"""
         try:
             execution_tree = self._build_execution_tree(self._plan)
@@ -163,6 +177,7 @@ class PlanExecutor:
             if output is not None:
                 yield from output
         except Exception as e:
-            if ignore_exceptions is False:
-                logger.exception(str(e))
+            if do_not_raise_exceptions is False:
+                if do_not_print_exceptions is False:
+                    logger.exception(str(e))
                 raise ExecutorError(e)

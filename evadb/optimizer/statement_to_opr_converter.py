@@ -15,9 +15,8 @@
 from evadb.expression.abstract_expression import AbstractExpression
 from evadb.optimizer.operators import (
     LogicalCreate,
+    LogicalCreateFunction,
     LogicalCreateIndex,
-    LogicalCreateMaterializedView,
-    LogicalCreateUDF,
     LogicalDelete,
     LogicalDropObject,
     LogicalExplain,
@@ -39,13 +38,12 @@ from evadb.optimizer.operators import (
     LogicalUnion,
 )
 from evadb.optimizer.optimizer_utils import (
-    column_definition_to_udf_io,
-    metadata_definition_to_udf_metadata,
+    column_definition_to_function_io,
+    metadata_definition_to_function_metadata,
 )
+from evadb.parser.create_function_statement import CreateFunctionStatement
 from evadb.parser.create_index_statement import CreateIndexStatement
-from evadb.parser.create_mat_view_statement import CreateMaterializedViewStatement
 from evadb.parser.create_statement import CreateTableStatement
-from evadb.parser.create_udf_statement import CreateUDFStatement
 from evadb.parser.delete_statement import DeleteTableStatement
 from evadb.parser.drop_object_statement import DropObjectStatement
 from evadb.parser.explain_statement import ExplainStatement
@@ -56,7 +54,7 @@ from evadb.parser.select_statement import SelectStatement
 from evadb.parser.show_statement import ShowStatement
 from evadb.parser.statement import AbstractStatement
 from evadb.parser.table_ref import TableRef
-from evadb.parser.types import UDFType
+from evadb.parser.types import FunctionType
 from evadb.utils.logging_manager import logger
 
 
@@ -78,7 +76,7 @@ class StatementToPlanConverter:
 
         elif table_ref.is_table_valued_expr():
             tve = table_ref.table_valued_expr
-            if tve.func_expr.name.lower() == str(UDFType.EXTRACT_OBJECT).lower():
+            if tve.func_expr.name.lower() == str(FunctionType.EXTRACT_OBJECT).lower():
                 self._plan = LogicalExtractObject(
                     detector=tve.func_expr.children[1],
                     tracker=tve.func_expr.children[2],
@@ -256,26 +254,33 @@ class StatementToPlanConverter:
         rename_opr = LogicalRename(statement.old_table_ref, statement.new_table_name)
         self._plan = rename_opr
 
-    def visit_create_udf(self, statement: CreateUDFStatement):
-        """Converter for parsed create udf statement
+    def visit_create_function(self, statement: CreateFunctionStatement):
+        """Converter for parsed create function statement
 
         Arguments:
-            statement {CreateUDFStatement} - - Create UDF Statement
+            statement {CreateFunctionStatement} - - CreateFunctionStatement
         """
-        annotated_inputs = column_definition_to_udf_io(statement.inputs, True)
-        annotated_outputs = column_definition_to_udf_io(statement.outputs, False)
-        annotated_metadata = metadata_definition_to_udf_metadata(statement.metadata)
+        annotated_inputs = column_definition_to_function_io(statement.inputs, True)
+        annotated_outputs = column_definition_to_function_io(statement.outputs, False)
+        annotated_metadata = metadata_definition_to_function_metadata(
+            statement.metadata
+        )
 
-        create_udf_opr = LogicalCreateUDF(
+        create_function_opr = LogicalCreateFunction(
             statement.name,
             statement.if_not_exists,
             annotated_inputs,
             annotated_outputs,
             statement.impl_path,
-            statement.udf_type,
+            statement.function_type,
             annotated_metadata,
         )
-        self._plan = create_udf_opr
+
+        if statement.query is not None:
+            self.visit_select(statement.query)
+            create_function_opr.append_child(self._plan)
+
+        self._plan = create_function_opr
 
     def visit_drop_object(self, statement: DropObjectStatement):
         self._plan = LogicalDropObject(
@@ -295,15 +300,6 @@ class StatementToPlanConverter:
         )
         self._plan = load_data_opr
 
-    def visit_materialized_view(self, statement: CreateMaterializedViewStatement):
-        mat_view_opr = LogicalCreateMaterializedView(
-            statement.view_info, statement.col_list, statement.if_not_exists
-        )
-
-        self.visit_select(statement.query)
-        mat_view_opr.append_child(self._plan)
-        self._plan = mat_view_opr
-
     def visit_show(self, statement: ShowStatement):
         show_opr = LogicalShow(statement.show_type)
         self._plan = show_opr
@@ -318,7 +314,7 @@ class StatementToPlanConverter:
             statement.table_ref,
             statement.col_list,
             statement.vector_store_type,
-            statement.udf_func,
+            statement.function,
         )
         self._plan = create_index_opr
 
@@ -345,14 +341,12 @@ class StatementToPlanConverter:
             self.visit_create(statement)
         elif isinstance(statement, RenameTableStatement):
             self.visit_rename(statement)
-        elif isinstance(statement, CreateUDFStatement):
-            self.visit_create_udf(statement)
+        elif isinstance(statement, CreateFunctionStatement):
+            self.visit_create_function(statement)
         elif isinstance(statement, DropObjectStatement):
             self.visit_drop_object(statement)
         elif isinstance(statement, LoadDataStatement):
             self.visit_load_data(statement)
-        elif isinstance(statement, CreateMaterializedViewStatement):
-            self.visit_materialized_view(statement)
         elif isinstance(statement, ShowStatement):
             self.visit_show(statement)
         elif isinstance(statement, ExplainStatement):
